@@ -1,0 +1,20 @@
+{
+  "name": "TERRAIN",
+  "short_name": "TERRAIN",
+  "description": "HUD terrain pour prospection énergie ENGIE PRO.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#070b12",
+  "theme_color": "#070b12",
+  "categories": ["business", "productivity", "navigation"],
+  "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
