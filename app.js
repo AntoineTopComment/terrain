@@ -14,8 +14,17 @@ import {
   startGeocoding,
   startLocationWatch,
   wazeUrl
-} from "./map.js?v=9";
-import { averageScore, rankFor, scoreClass, streakCount, todayPercent, totalScore } from "./score.js?v=9";
+} from "./map.js?v=12";
+import {
+  averageScore,
+  rankFor,
+  recentChartDays,
+  scoreClass,
+  streakBlazing,
+  streakCount,
+  todayPercent,
+  totalScore
+} from "./score.js?v=12";
 
 const SUPABASE_URL = "https://fuxephmatxzgccmaaftt.supabase.co";
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ1eGVwaG1hdHh6Z2NjbWFhZnR0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcxOTk2MjYsImV4cCI6MjA5Mjc3NTYyNn0.FN9McvOO2Mb9-vrdvGsiUzinkldz02mSAJSgmh6sm1U";
@@ -23,10 +32,12 @@ const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBh
 const state = {
   clients: [],
   scores: [],
+  quests: [],
   selectedClient: null,
   mapReady: false,
   mapMode: "satellite",
-  geoSummary: { placed: 0, city: 0, total: 0 }
+  geoSummary: { placed: 0, city: 0, total: 0 },
+  questsBootstrapped: false  // évite de retenter l'insert auto en boucle
 };
 
 const $ = (selector) => document.querySelector(selector);
@@ -45,12 +56,16 @@ document.addEventListener("DOMContentLoaded", () => {
 async function loadTerrain() {
   setNetwork("SYNC");
   try {
-    const [clients, scores] = await Promise.all([
+    const today = todayIso();
+    const [clients, scores, quests] = await Promise.all([
       fetchRows("clients", "select=*&order=updated_at.desc"),
-      fetchRows("daily_scores", "select=*&order=score_date.desc")
+      fetchRows("daily_scores", "select=*&order=score_date.desc"),
+      fetchRows("daily_quests", `select=*&score_date=eq.${today}&order=slot.asc`)
     ]);
     state.clients = clients;
     state.scores = scores;
+    state.quests = quests;
+    await ensureTodayQuests();
     renderCockpit();
     if (state.mapReady) renderMap();
     setNetwork("LIVE");
@@ -77,6 +92,7 @@ async function fetchRows(table, query) {
 function restoreOfflineData() {
   state.clients = JSON.parse(localStorage.getItem("terrain:clients") || "[]");
   state.scores = JSON.parse(localStorage.getItem("terrain:daily_scores") || "[]");
+  state.quests = JSON.parse(localStorage.getItem("terrain:daily_quests") || "[]");
   renderCockpit();
   if (state.mapReady) renderMap();
 }
@@ -91,7 +107,7 @@ function clearOldGeoCaches() {
 function bindActions() {
   $("#go-map-button").addEventListener("click", () => showScreen("map-screen"));
   $("#back-home-button").addEventListener("click", () => showScreen("home-screen"));
-  $("#refresh-button").addEventListener("click", loadTerrain);
+  $("#refresh-button").addEventListener("click", refreshQuests);
   $("#center-button").addEventListener("click", centerOnUser);
   $("#fit-button").addEventListener("click", fitAllClients);
   $("#fit-button").addEventListener("dblclick", cleanLocalPositions);
@@ -128,7 +144,6 @@ function bootMap() {
 function renderCockpit() {
   renderHomeMetrics();
   renderQuests();
-  renderStats();
   renderHistory();
 }
 
@@ -138,6 +153,7 @@ function renderHomeMetrics() {
   const total = totalScore(state.scores);
   const rank = rankFor(total);
   const streak = streakCount(state.scores);
+  const blazing = streakBlazing(state.scores, today);
   const scoreKind = scoreClass(percent);
 
   $("#score-percent").textContent = `${percent}%`;
@@ -153,25 +169,35 @@ function renderHomeMetrics() {
   $("#rank-next").textContent = rank.next ? `${rank.next.name} à portée : ${rank.progress}% du chemin.` : "Rang maximum actif.";
 
   $("#streak-count").textContent = streak;
-  $("#streak-badge").textContent = streak > 1 ? "Jours au-dessus du seuil terrain." : "Streak à construire aujourd'hui.";
-}
-
-function renderStats() {
-  const hot = state.clients.filter((client) => ["chaud", "tres-chaud"].includes(client.heat_level)).length;
-  const signed = state.clients.filter((client) => client.signed_client).length;
-  $("#total-clients").textContent = state.clients.length;
-  $("#signed-clients").textContent = signed;
-  $("#hot-clients").textContent = hot;
-  $("#located-clients").textContent = state.geoSummary.total ? state.geoSummary.placed : estimateLocatedClients();
+  const streakCard = document.querySelector(".streak-card");
+  streakCard.classList.toggle("blazing", blazing && streak > 0);
+  if (blazing && streak > 0) {
+    $("#streak-badge").textContent = "Journée en surchauffe — chiffre en feu.";
+  } else if (streak > 1) {
+    $("#streak-badge").textContent = `${streak} jours validés à 100%+.`;
+  } else if (streak === 1) {
+    $("#streak-badge").textContent = "Premier jour validé. On enchaîne demain.";
+  } else {
+    $("#streak-badge").textContent = "Streak à construire aujourd'hui.";
+  }
 }
 
 function renderHistory() {
+  const days = recentChartDays(state.scores, 8);
   const avg = averageScore(state.scores);
-  const days = chartDays(state.scores);
   $("#history-label").textContent = "Réf. 100%";
-  $("#history-bars").innerHTML = days.map((day) => {
-    const percent = avg ? Math.round((Number(day.raw_score || 0) / avg) * 100) : 0;
-    const height = Math.max(8, Math.min(100, Math.round(percent * 0.78)));
+  if (!days.length) {
+    $("#history-bars").innerHTML = `<div class="history-empty">Aucune journée enregistrée pour l'instant.</div>`;
+    return;
+  }
+  // Scaling dynamique : la barre la plus haute du jeu affiché occupe 100%
+  // de la hauteur. Plancher à 100% pour garder une référence visuelle stable
+  // quand aucun jour ne dépasse la moyenne.
+  const percents = days.map((day) => (avg ? Math.round((Number(day.raw_score || 0) / avg) * 100) : 0));
+  const maxPct = Math.max(100, ...percents);
+  $("#history-bars").innerHTML = days.map((day, i) => {
+    const percent = percents[i];
+    const height = Math.max(6, Math.round((percent / maxPct) * 100));
     const classes = ["bar", scoreClass(percent), day.score_date === todayIso() ? "today" : ""].filter(Boolean).join(" ");
     return `
       <div class="bar-wrap">
@@ -184,15 +210,247 @@ function renderHistory() {
   }).join("");
 }
 
+// === QUÊTES =================================================================
+
+const QUEST_BONUS = { easy: 10, medium: 18, hard: 28 };
+
 function renderQuests() {
-  const quests = buildQuests(state.clients);
-  $("#quest-list").innerHTML = quests.map((quest) => `
-    <article class="quest">
-      <strong>${escapeHtml(quest.title)}</strong>
-      <span>${escapeHtml(quest.detail)}</span>
-    </article>
-  `).join("");
+  const today = todayIso();
+  const hasTodayScore = state.scores.some((day) => day.score_date === today);
+
+  if (!hasTodayScore) {
+    $("#quest-list").innerHTML = `
+      <div class="quest-empty">
+        <strong>Quêtes verrouillées</strong>
+        <span>Ouvre ta journée — dicte un CR ou crée la ligne du jour pour débloquer 3 quêtes.</span>
+      </div>
+    `;
+    return;
+  }
+
+  if (!state.quests.length) {
+    $("#quest-list").innerHTML = `<div class="quest-empty"><span>Génération des quêtes en cours...</span></div>`;
+    return;
+  }
+
+  $("#quest-list").innerHTML = state.quests.map((quest) => {
+    const completed = quest.completed ? "completed" : "";
+    const bonus = `+${quest.bonus_percent}%`;
+    return `
+      <article class="quest ${completed}">
+        <div class="quest-head">
+          <strong>${escapeHtml(quest.title)}</strong>
+          <span class="quest-bonus">${bonus}</span>
+        </div>
+        <span class="quest-detail">${escapeHtml(quest.detail)}</span>
+        ${quest.completed ? `<span class="quest-check">✓ Validée</span>` : ""}
+      </article>
+    `;
+  }).join("");
 }
+
+// Si aujourd'hui a une ligne daily_scores mais aucune quête en base,
+// on en génère 3 et on les insère.
+async function ensureTodayQuests() {
+  const today = todayIso();
+  const hasTodayScore = state.scores.some((day) => day.score_date === today);
+  if (!hasTodayScore) return;
+  if (state.quests.length >= 3) return;
+  if (state.questsBootstrapped) return;
+  state.questsBootstrapped = true;
+
+  const generated = buildQuests(state.clients);
+  const inserted = await insertQuests(today, generated);
+  if (inserted) state.quests = inserted;
+}
+
+async function refreshQuests() {
+  const today = todayIso();
+  const hasTodayScore = state.scores.some((day) => day.score_date === today);
+  if (!hasTodayScore) {
+    setNetwork("VERROU");
+    setTimeout(() => setNetwork("LIVE"), 1400);
+    return;
+  }
+  setNetwork("ROLL");
+  try {
+    await deleteQuests(today);
+    state.quests = [];
+    state.questsBootstrapped = false;
+    const generated = buildQuests(state.clients);
+    const inserted = await insertQuests(today, generated);
+    if (inserted) state.quests = inserted;
+    renderQuests();
+    setNetwork("LIVE");
+  } catch (error) {
+    console.error(error);
+    setNetwork("OFFLINE");
+  }
+}
+
+async function deleteQuests(date) {
+  const response = await fetch(`${SUPABASE_URL}/rest/v1/daily_quests?score_date=eq.${date}`, {
+    method: "DELETE",
+    headers: {
+      apikey: SUPABASE_ANON_KEY,
+      Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+      Prefer: "return=minimal"
+    }
+  });
+  if (!response.ok && response.status !== 404) {
+    throw new Error(`Delete quests: ${response.status}`);
+  }
+}
+
+async function insertQuests(date, quests) {
+  if (!quests || !quests.length) return [];
+  const payload = quests.slice(0, 3).map((quest, index) => ({
+    score_date: date,
+    slot: index + 1,
+    title: quest.title,
+    detail: quest.detail,
+    bonus_percent: quest.bonus_percent,
+    difficulty: quest.difficulty,
+    target_client_id: quest.target_client_id || null
+  }));
+  const response = await fetch(`${SUPABASE_URL}/rest/v1/daily_quests`, {
+    method: "POST",
+    headers: {
+      apikey: SUPABASE_ANON_KEY,
+      Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+      "Content-Type": "application/json",
+      Prefer: "return=representation"
+    },
+    body: JSON.stringify(payload)
+  });
+  if (!response.ok) {
+    console.error("Insert quests failed", response.status);
+    return null;
+  }
+  const rows = await response.json();
+  return rows.sort((a, b) => a.slot - b.slot);
+}
+
+// Génère 3 quêtes depuis les règles métier.
+// Pool de candidats par catégorie, on tire au sort dans chaque catégorie
+// pour que le bouton "Rafraîchir" donne des quêtes différentes.
+function buildQuests(clients) {
+  const pools = buildQuestPools(clients);
+  const order = ["closing", "hot", "invoice", "due", "missingPhone", "missingLocation", "fallback"];
+  const picked = [];
+  const usedTargets = new Set();
+
+  for (const key of order) {
+    if (picked.length >= 3) break;
+    const candidates = (pools[key] || []).filter((q) => {
+      if (!q.target_client_id) return true;
+      return !usedTargets.has(q.target_client_id);
+    });
+    if (!candidates.length) continue;
+    const pick = candidates[Math.floor(Math.random() * candidates.length)];
+    picked.push(pick);
+    if (pick.target_client_id) usedTargets.add(pick.target_client_id);
+  }
+
+  while (picked.length < 3) {
+    picked.push(genericFallback(picked.length));
+  }
+  return picked.slice(0, 3);
+}
+
+function buildQuestPools(clients) {
+  const due = clients.filter((c) => isDue(c.next_action_at));
+  const closing = clients.filter((c) => ["a-signer", "proposition-envoyee"].includes(c.machine_status) && !c.signed_client);
+  const hot = clients.filter((c) => ["chaud", "tres-chaud"].includes(c.heat_level) && c.machine_status !== "signe" && !c.signed_client);
+  const invoice = clients.filter((c) => ["facture-attendue", "contact-obtenu"].includes(c.machine_status));
+  const missingPhone = clients.filter((c) => !c.phone && c.enterprise_name);
+  const missingLocation = clients.filter((c) => !c.address && c.enterprise_name);
+
+  return {
+    closing: closing.map((c) => ({
+      title: "Closing à finaliser",
+      detail: questDetail(c, "passer signer ou relancer le contrat."),
+      bonus_percent: QUEST_BONUS.hard,
+      difficulty: "hard",
+      target_client_id: c.id
+    })),
+    hot: hot.map((c) => ({
+      title: "Cuisson à maintenir",
+      detail: questDetail(c, "garder le contact chaud, ne pas laisser refroidir."),
+      bonus_percent: QUEST_BONUS.medium,
+      difficulty: "medium",
+      target_client_id: c.id
+    })),
+    invoice: invoice.map((c) => ({
+      title: "Facture à sortir",
+      detail: questDetail(c, "transformer le contact en facture analysable."),
+      bonus_percent: QUEST_BONUS.medium,
+      difficulty: "medium",
+      target_client_id: c.id
+    })),
+    due: due.map((c) => ({
+      title: "Relance prioritaire",
+      detail: questDetail(c, "action prévue maintenant, à traiter."),
+      bonus_percent: QUEST_BONUS.medium,
+      difficulty: "medium",
+      target_client_id: c.id
+    })),
+    missingPhone: missingPhone.map((c) => ({
+      title: "Fiche à muscler",
+      detail: questDetail(c, "récupérer le téléphone."),
+      bonus_percent: QUEST_BONUS.easy,
+      difficulty: "easy",
+      target_client_id: c.id
+    })),
+    missingLocation: missingLocation.map((c) => ({
+      title: "Carte à nettoyer",
+      detail: questDetail(c, "récupérer ou poser l'adresse exacte."),
+      bonus_percent: QUEST_BONUS.easy,
+      difficulty: "easy",
+      target_client_id: c.id
+    })),
+    fallback: [
+      {
+        title: "Tournée éclair",
+        detail: "Toucher 3 commerces proches et dicter le CR juste après.",
+        bonus_percent: QUEST_BONUS.medium,
+        difficulty: "medium",
+        target_client_id: null
+      },
+      {
+        title: "Cold zone",
+        detail: "Pousser une zone industrielle nouvelle et créer 2 fiches fraîches.",
+        bonus_percent: QUEST_BONUS.medium,
+        difficulty: "medium",
+        target_client_id: null
+      },
+      {
+        title: "Ménage pipeline",
+        detail: "Repasser sur 3 fiches dormantes et trancher : à relancer ou KO.",
+        bonus_percent: QUEST_BONUS.easy,
+        difficulty: "easy",
+        target_client_id: null
+      }
+    ]
+  };
+}
+
+function questDetail(client, action) {
+  const name = client.enterprise_name || client.contact_name || "Client";
+  const city = client.city ? ` · ${client.city}` : "";
+  return `${name}${city} · ${action}`;
+}
+
+function genericFallback(index) {
+  const pool = [
+    { title: "Terrain utile", detail: "Toucher 3 commerces proches et dicter le CR juste après.", bonus_percent: QUEST_BONUS.medium, difficulty: "medium", target_client_id: null },
+    { title: "Carnet en main", detail: "Récupérer 2 numéros de portable de gérants encore manquants.", bonus_percent: QUEST_BONUS.easy, difficulty: "easy", target_client_id: null },
+    { title: "Audit de pipe", detail: "Repasser sur 3 fiches dormantes et statuer.", bonus_percent: QUEST_BONUS.easy, difficulty: "easy", target_client_id: null }
+  ];
+  return pool[index % pool.length];
+}
+
+// === MAP / CLIENTS / GEO ====================================================
 
 function renderMap() {
   renderClients(state.clients, showClient);
@@ -340,7 +598,6 @@ async function persistManualCoords(client, coords, source) {
 
 function updateGeoStatus(summary) {
   state.geoSummary = summary;
-  renderStats();
   updateMapCount(summary.displayed, summary.total);
   const label = summary.total
     ? `${summary.displayed}/${summary.total} affichées · ${summary.pending} sans coords`
@@ -365,35 +622,7 @@ function setGeoPill(label) {
   $("#geo-pill").textContent = label;
 }
 
-function buildQuests(clients) {
-  const due = clients.find((client) => isDue(client.next_action_at));
-  const invoice = clients.find((client) => ["facture-attendue", "contact-obtenu"].includes(client.machine_status));
-  const hotFollow = clients.find((client) => ["chaud", "tres-chaud"].includes(client.heat_level) && client.machine_status !== "signe");
-  const missingLocation = clients.find((client) => !client.address);
-  const missingPhone = clients.find((client) => !client.phone);
-  const quests = [];
-  if (due) quests.push({ title: "Relance prioritaire", detail: `${due.enterprise_name} · ${due.city || "zone"} · action prévue maintenant.` });
-  if (hotFollow) quests.push({ title: "Cuisson à maintenir", detail: `${hotFollow.enterprise_name} · ${hotFollow.city || "zone"} · repasser propre.` });
-  if (invoice) quests.push({ title: "Facture à sortir", detail: `${invoice.enterprise_name} · transformer le contact en analyse.` });
-  if (missingLocation) quests.push({ title: "Carte à nettoyer", detail: `${missingLocation.enterprise_name} · récupérer ou poser l'adresse exacte.` });
-  if (missingPhone) quests.push({ title: "Fiche à muscler", detail: `${missingPhone.enterprise_name} · récupérer le téléphone.` });
-  while (quests.length < 3) {
-    quests.push({ title: "Terrain utile", detail: "Toucher 3 commerces proches et dicter le CR juste après." });
-  }
-  return quests.slice(0, 3);
-}
-
-function chartDays(scores) {
-  const byDate = new Map(scores.map((day) => [day.score_date, day]));
-  const dates = [...byDate.keys()].sort().slice(-13);
-  const today = todayIso();
-  if (!byDate.has(today)) dates.push(today);
-  return dates.slice(-14).map((date) => byDate.get(date) || { score_date: date, raw_score: 0, actions_count: 0 });
-}
-
-function estimateLocatedClients() {
-  return state.clients.filter((client) => client.address).length;
-}
+// === HELPERS ================================================================
 
 function handleNearClient(client, distance) {
   if (navigator.vibrate) navigator.vibrate([180, 80, 180]);

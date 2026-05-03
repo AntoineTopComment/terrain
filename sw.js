@@ -1,4 +1,4 @@
-const CACHE_NAME = "terrain-v9";
+const CACHE_NAME = "terrain-v12";
 const APP_SHELL = [
   "./",
   "./index.html",
