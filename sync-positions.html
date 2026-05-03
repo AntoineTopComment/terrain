@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sync positions → Supabase</title>
+  <style>
+    body { font-family: monospace; background: #111; color: #eee; padding: 20px; max-width: 700px; margin: 0 auto; }
+    h1 { color: #4ade80; font-size: 1.2em; }
+    #status { margin: 20px 0; }
+    .ok  { color: #4ade80; }
+    .err { color: #f87171; }
+    .info { color: #94a3b8; }
+    button {
+      background: #4ade80; color: #111; border: none;
+      padding: 14px 28px; font-size: 1.1em; font-weight: bold;
+      border-radius: 8px; cursor: pointer; margin-top: 10px;
+    }
+    button:disabled { background: #374151; color: #6b7280; cursor: default; }
+    #summary { margin-top: 20px; padding: 16px; background: #1f2937; border-radius: 8px; display:none; }
+  </style>
+</head>
+<body>
+  <h1>🔄 Sync positions terrain → Supabase</h1>
+  <p class="info">Cette page lit les positions que tu as posées sur la carte et les enregistre dans la base de données.</p>
+  <p class="info">⚠️ Ouvre cette page depuis le <strong>même navigateur</strong> que celui où tu as utilisé la carte.</p>
+
+  <div id="status"></div>
+  <button id="btn" onclick="startSync()">Lancer la synchronisation</button>
+  <div id="summary"></div>
+
+  <script>
+    const SUPABASE_URL = "https://fuxephmatxzgccmaaftt.supabase.co";
+    const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ1eGVwaG1hdHh6Z2NjbWFhZnR0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcxOTk2MjYsImV4cCI6MjA5Mjc3NTYyNn0.FN9McvOO2Mb9-vrdvGsiUzinkldz02mSAJSgmh6sm1U";
+    const MANUAL_COORDS_KEY = "terrain:manual-coords:v1";
+
+    function log(msg, cls = "info") {
+      const div = document.getElementById("status");
+      const line = document.createElement("div");
+      line.className = cls;
+      line.textContent = msg;
+      div.appendChild(line);
+      window.scrollTo(0, document.body.scrollHeight);
+    }
+
+    async function patchClient(id, lat, lng) {
+      const res = await fetch(`${SUPABASE_URL}/rest/v1/clients?id=eq.${encodeURIComponent(id)}`, {
+        method: "PATCH",
+        headers: {
+          "apikey": SUPABASE_ANON_KEY,
+          "Authorization": `Bearer ${SUPABASE_ANON_KEY}`,
+          "Content-Type": "application/json",
+          "Prefer": "return=minimal"
+        },
+        body: JSON.stringify({
+          manual_lat: lat,
+          manual_lng: lng,
+          manual_location_source: "posé sur carte (tablette)",
+          updated_at: new Date().toISOString()
+        })
+      });
+      return res.ok;
+    }
+
+    async function startSync() {
+      const btn = document.getElementById("btn");
+      btn.disabled = true;
+      document.getElementById("status").innerHTML = "";
+
+      // Lire le localStorage
+      let raw;
+      try {
+        raw = localStorage.getItem(MANUAL_COORDS_KEY);
+      } catch(e) {
+        log("❌ Impossible de lire le localStorage : " + e.message, "err");
+        btn.disabled = false;
+        return;
+      }
+
+      if (!raw) {
+        log("⚠️ Aucune position trouvée dans le localStorage. Tu es bien sur le bon navigateur ?", "err");
+        btn.disabled = false;
+        return;
+      }
+
+      const coords = JSON.parse(raw);
+      const entries = Object.entries(coords);
+
+      if (entries.length === 0) {
+        log("⚠️ Le localStorage est vide — aucune position à synchroniser.", "err");
+        btn.disabled = false;
+        return;
+      }
+
+      log(`📦 ${entries.length} position(s) trouvée(s) dans le navigateur. Envoi en cours...`);
+
+      let ok = 0, errors = 0, skipped = 0;
+
+      for (const [key, val] of entries) {
+        const { lat, lng, label, savedAt } = val;
+
+        // La clé est l'UUID du client si client.id existe, sinon "nom-ville-adresse"
+        // On tente d'abord comme UUID
+        const isUUID = /^[0-9a-f-]{36}$/i.test(key);
+
+        if (!isUUID) {
+          log(`⏭ Ignoré (clé non-UUID) : ${key}`, "info");
+          skipped++;
+          continue;
+        }
+
+        const success = await patchClient(key, lat, lng);
+        if (success) {
+          log(`✅ ${key.slice(0,8)}… → [${lat.toFixed(5)}, ${lng.toFixed(5)}] (${label || ""})`, "ok");
+          ok++;
+        } else {
+          log(`❌ Échec pour ${key.slice(0,8)}…`, "err");
+          errors++;
+        }
+
+        // Petite pause pour ne pas surcharger l'API
+        await new Promise(r => setTimeout(r, 80));
+      }
+
+      // Résumé
+      const summary = document.getElementById("summary");
+      summary.style.display = "block";
+      summary.innerHTML = `
+        <div class="ok">✅ Synchronisés : ${ok}</div>
+        ${errors > 0 ? `<div class="err">❌ Échecs : ${errors}</div>` : ""}
+        ${skipped > 0 ? `<div class="info">⏭ Ignorés (non-UUID) : ${skipped}</div>` : ""}
+        <div class="info" style="margin-top:12px">Tu peux recharger la carte — les positions sont maintenant en base.</div>
+      `;
+
+      log("--- Terminé ---", "ok");
+      btn.textContent = "Synchronisation terminée";
+    }
+  </script>
+</body>
+</html>
