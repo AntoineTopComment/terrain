@@ -3,10 +3,16 @@ import {
   clearInvalidLocalPositions,
   enableManualPlacement,
   fitAllClients,
+  focusMapOn,
+  focusOperationalArea,
   getCaptureTargets,
   getClientLocationInfo,
   getGeoSummary,
+  getLocatedClients,
+  getUserCoords,
   initMap,
+  primeClientLocations,
+  refreshUserPosition,
   renderClients,
   saveClientAtUser,
   setGeocodeStatusCallback,
@@ -14,7 +20,7 @@ import {
   startGeocoding,
   startLocationWatch,
   wazeUrl
-} from "./map.js?v=12";
+} from "./map.js?v=16";
 import {
   averageScore,
   rankFor,
@@ -24,7 +30,7 @@ import {
   streakCount,
   todayPercent,
   totalScore
-} from "./score.js?v=12";
+} from "./score.js?v=16";
 
 const SUPABASE_URL = "https://fuxephmatxzgccmaaftt.supabase.co";
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ1eGVwaG1hdHh6Z2NjbWFhZnR0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcxOTk2MjYsImV4cCI6MjA5Mjc3NTYyNn0.FN9McvOO2Mb9-vrdvGsiUzinkldz02mSAJSgmh6sm1U";
@@ -37,7 +43,12 @@ const state = {
   mapReady: false,
   mapMode: "satellite",
   geoSummary: { placed: 0, city: 0, total: 0 },
-  questsBootstrapped: false  // évite de retenter l'insert auto en boucle
+  questsBootstrapped: false,  // évite de retenter l'insert auto en boucle
+  gpsWatchActive: false,
+  miniMap: null,
+  miniMarkers: [],
+  miniUserMarker: null,
+  homeSelectedClient: null
 };
 
 const $ = (selector) => document.querySelector(selector);
@@ -49,6 +60,8 @@ document.addEventListener("DOMContentLoaded", () => {
   registerServiceWorker();
   updateDate();
   clearOldGeoCaches();
+  renderMiniMap();
+  ensureLocationWatch();
   loadTerrain();
   setInterval(loadTerrain, 60000);
 });
@@ -65,6 +78,7 @@ async function loadTerrain() {
     state.clients = clients;
     state.scores = scores;
     state.quests = quests;
+    primeClientLocations(state.clients);
     await ensureTodayQuests();
     renderCockpit();
     if (state.mapReady) renderMap();
@@ -93,6 +107,7 @@ function restoreOfflineData() {
   state.clients = JSON.parse(localStorage.getItem("terrain:clients") || "[]");
   state.scores = JSON.parse(localStorage.getItem("terrain:daily_scores") || "[]");
   state.quests = JSON.parse(localStorage.getItem("terrain:daily_quests") || "[]");
+  primeClientLocations(state.clients);
   renderCockpit();
   if (state.mapReady) renderMap();
 }
@@ -108,6 +123,9 @@ function bindActions() {
   $("#go-map-button").addEventListener("click", () => showScreen("map-screen"));
   $("#back-home-button").addEventListener("click", () => showScreen("home-screen"));
   $("#refresh-button").addEventListener("click", refreshQuests);
+  $("#minimap-center-button").addEventListener("click", refreshMiniMapPosition);
+  $("#close-home-client-detail").addEventListener("click", () => showHomeClient(null));
+  $("#home-open-map-button").addEventListener("click", openSelectedOnSatellite);
   $("#center-button").addEventListener("click", centerOnUser);
   $("#fit-button").addEventListener("click", fitAllClients);
   $("#fit-button").addEventListener("dblclick", cleanLocalPositions);
@@ -127,6 +145,10 @@ function showScreen(screenId) {
     setTimeout(() => window.dispatchEvent(new Event("resize")), 80);
     return;
   }
+  setTimeout(() => {
+    state.miniMap?.invalidateSize();
+    renderMiniMap();
+  }, 80);
   switchMapMode("satellite");
 }
 
@@ -135,14 +157,27 @@ function bootMap() {
     initMap({ onClientSelected: showClient, onGeoStatusChange: updateGeoStatus, onGpsStatusChange: updateGpsStatus });
     state.mapReady = true;
     renderMap();
-    fitAllClients();
-    startLocationWatch(handleNearClient, renderCaptureTargets);
+    ensureLocationWatch();
+    centerMapForEdit();
   }
   switchMapMode(state.mapMode);
 }
 
+function centerMapForEdit() {
+  const cachedCoords = getUserCoords();
+  if (focusMapOn(cachedCoords, 16)) {
+    renderCaptureTargets();
+    return;
+  }
+  refreshUserPosition((coords) => {
+    focusMapOn(coords, 16);
+    renderCaptureTargets();
+  }).catch(() => focusOperationalArea(14));
+}
+
 function renderCockpit() {
   renderHomeMetrics();
+  renderMiniMap();
   renderQuests();
   renderHistory();
 }
@@ -185,7 +220,7 @@ function renderHomeMetrics() {
 function renderHistory() {
   const days = recentChartDays(state.scores, 8);
   const avg = averageScore(state.scores);
-  $("#history-label").textContent = "Réf. 100%";
+  $("#history-label").textContent = "";
   if (!days.length) {
     $("#history-bars").innerHTML = `<div class="history-empty">Aucune journée enregistrée pour l'instant.</div>`;
     return;
@@ -208,6 +243,178 @@ function renderHistory() {
       </div>
     `;
   }).join("");
+}
+
+// === MINIMAP ================================================================
+
+function ensureLocationWatch() {
+  if (state.gpsWatchActive) return;
+  state.gpsWatchActive = true;
+  startLocationWatch(handleNearClient, handlePositionChange);
+}
+
+function handlePositionChange() {
+  renderMiniMap();
+  renderCaptureTargets();
+}
+
+async function refreshMiniMapPosition() {
+  ensureLocationWatch();
+  setMiniMapStatus("GPS SCAN");
+  try {
+    await refreshUserPosition(handlePositionChange);
+  } catch {
+    setMiniMapStatus("GPS BLOQUÉ");
+  }
+}
+
+function renderMiniMap() {
+  const map = ensureMiniMap();
+  if (!map) return;
+  const coords = getUserCoords();
+  const targets = getLocatedClients(120);
+  const summary = getGeoSummary();
+  const displayed = summary.displayed || 0;
+  const total = summary.total || state.clients.length || 0;
+
+  setMiniMapStatus(coords ? `GPS LIVE · ${targets.length} POI` : `PLAN · ${targets.length} POI`);
+  $("#minimap-range").textContent = coords ? miniMapRange(targets) : `${displayed}/${total} géocodés`;
+
+  renderMiniMapUser(coords);
+  renderMiniMapMarkers(targets);
+  positionMiniMap(coords, targets);
+  if (state.homeSelectedClient) showHomeClient(state.homeSelectedClient, { skipMarkers: true });
+}
+
+function ensureMiniMap() {
+  const container = $("#home-minimap");
+  if (!container || !window.L) return null;
+  if (state.miniMap) return state.miniMap;
+
+  state.miniMap = L.map(container, {
+    attributionControl: false,
+    zoomControl: false,
+    preferCanvas: true,
+    tap: true
+  });
+  L.tileLayer("https://{s}.basemaps.cartocdn.com/rastertiles/voyager_nolabels/{z}/{x}/{y}{r}.png", {
+    attribution: "&copy; OpenStreetMap &copy; CARTO",
+    maxZoom: 20,
+    subdomains: "abcd"
+  }).addTo(state.miniMap);
+  state.miniMap.on("click", () => showHomeClient(null));
+  state.miniMap.setView([45.708, 4.86], 14);
+  setTimeout(() => state.miniMap?.invalidateSize(), 80);
+  return state.miniMap;
+}
+
+function renderMiniMapUser(coords) {
+  if (!state.miniMap) return;
+  if (!coords) {
+    if (state.miniUserMarker) {
+      state.miniUserMarker.remove();
+      state.miniUserMarker = null;
+    }
+    return;
+  }
+  if (!state.miniUserMarker) {
+    state.miniUserMarker = L.marker(coords, {
+      interactive: false,
+      icon: L.divIcon({
+        className: "home-user-marker",
+        html: "<span></span>",
+        iconSize: [34, 34],
+        iconAnchor: [17, 17]
+      })
+    }).addTo(state.miniMap);
+    return;
+  }
+  state.miniUserMarker.setLatLng(coords);
+}
+
+function renderMiniMapMarkers(targets) {
+  if (!state.miniMap) return;
+  const selectedKey = state.homeSelectedClient ? clientKey(state.homeSelectedClient) : "";
+  state.miniMarkers.forEach((marker) => marker.remove());
+  state.miniMarkers = targets.map((target) => {
+    const key = clientKey(target.client);
+    const marker = L.marker(target.coords, {
+      icon: L.divIcon({
+        className: `home-map-marker ${homeMarkerClass(target.client)} ${target.source === "city" ? "approx" : ""} ${key === selectedKey ? "selected" : ""}`,
+        html: "<span></span>",
+        iconSize: [28, 28],
+        iconAnchor: [14, 14]
+      }),
+      bubblingMouseEvents: false,
+      riseOnHover: true
+    }).addTo(state.miniMap);
+    marker.on("click", (event) => {
+      if (event.originalEvent) L.DomEvent.stop(event.originalEvent);
+      showHomeClient(target.client);
+    });
+    return marker;
+  });
+}
+
+function positionMiniMap(coords, targets) {
+  if (!state.miniMap) return;
+  if (coords) {
+    state.miniMap.setView(coords, 17, { animate: false });
+    return;
+  }
+  const selected = state.homeSelectedClient ? targets.find((target) => clientKey(target.client) === clientKey(state.homeSelectedClient)) : null;
+  const anchor = selected || targets[0];
+  if (anchor) state.miniMap.setView(anchor.coords, 16, { animate: false });
+}
+
+function miniMapRange(targets) {
+  const distances = targets.map((target) => target.distance).filter((value) => Number.isFinite(value));
+  if (!distances.length) return "GPS en attente";
+  return `rayon ${distanceLabel(Math.max(...distances.slice(0, 8)))}`;
+}
+
+function setMiniMapStatus(label) {
+  const status = $("#minimap-status");
+  if (status) status.textContent = label;
+}
+
+function showHomeClient(client, options = {}) {
+  const panel = $("#home-client-detail");
+  if (!panel) return;
+  state.homeSelectedClient = client;
+  if (!client) {
+    panel.classList.remove("open");
+    if (!options.skipMarkers) renderMiniMapMarkers(getLocatedClients(120));
+    return;
+  }
+  $("#home-client-city").textContent = client.city || "Zone";
+  $("#home-client-title").textContent = client.enterprise_name || "Client terrain";
+  $("#home-client-meta").textContent = [client.contact_name, client.phone, client.business_activity].filter(Boolean).join(" · ") || "Infos à compléter.";
+  $("#home-client-tags").innerHTML = [client.machine_status, client.seller_label, client.heat_level]
+    .filter(Boolean)
+    .map((tag) => `<span class="tag">${escapeHtml(tag)}</span>`)
+    .join("");
+  $("#home-client-location").textContent = getClientLocationInfo(client);
+  $("#home-client-notes").textContent = client.relationship_summary || client.notes || "Pas encore de note terrain.";
+  $("#home-waze-link").href = wazeUrl(client);
+  panel.classList.add("open");
+  if (!options.skipMarkers) renderMiniMapMarkers(getLocatedClients(120));
+}
+
+function openSelectedOnSatellite() {
+  if (!state.homeSelectedClient) return;
+  showScreen("map-screen");
+  setTimeout(() => showClient(state.homeSelectedClient), 140);
+}
+
+function homeMarkerClass(client) {
+  if (state.quests.some((quest) => quest.target_client_id && String(quest.target_client_id) === String(client.id) && !quest.completed)) return "quest";
+  if (client.signed_client) return "signed";
+  if (isDue(client.next_action_at)) return "due";
+  if (client.heat_level === "tres-chaud") return "very-hot";
+  if (client.heat_level === "chaud") return "hot";
+  if (client.heat_level === "tiede") return "warm";
+  return "cold";
 }
 
 // === QUÊTES =================================================================
@@ -237,13 +444,16 @@ function renderQuests() {
     const completed = quest.completed ? "completed" : "";
     const bonus = `+${quest.bonus_percent}%`;
     return `
-      <article class="quest ${completed}">
-        <div class="quest-head">
-          <strong>${escapeHtml(quest.title)}</strong>
-          <span class="quest-bonus">${bonus}</span>
+      <article class="quest ${completed}" data-difficulty="${escapeHtml(quest.difficulty || "medium")}">
+        <span class="quest-icon">!</span>
+        <div class="quest-copy">
+          <div class="quest-head">
+            <strong>${escapeHtml(quest.title)}</strong>
+            <span class="quest-bonus">${bonus}</span>
+          </div>
+          <span class="quest-detail">${escapeHtml(quest.detail)}</span>
+          ${quest.completed ? `<span class="quest-check">VALIDÉE</span>` : ""}
         </div>
-        <span class="quest-detail">${escapeHtml(quest.detail)}</span>
-        ${quest.completed ? `<span class="quest-check">✓ Validée</span>` : ""}
       </article>
     `;
   }).join("");
@@ -603,10 +813,17 @@ function updateGeoStatus(summary) {
     ? `${summary.displayed}/${summary.total} affichées · ${summary.pending} sans coords`
     : "Localisation en cours";
   setGeoPill(label);
+  renderMiniMap();
 }
 
 function updateGpsStatus(status) {
-  if (status === "GPS indisponible") setGeoPill("GPS indisponible");
+  if (status === "GPS indisponible") {
+    setGeoPill("GPS indisponible");
+    setMiniMapStatus("GPS BLOQUÉ");
+  } else if (status === "GPS actif") {
+    setMiniMapStatus("GPS LIVE");
+  }
+  renderMiniMap();
 }
 
 function updateMapCount(displayed, total = displayed) {

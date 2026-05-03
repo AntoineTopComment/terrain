@@ -6,14 +6,14 @@
     <meta name="theme-color" content="#070b12">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <meta name="apple-mobile-web-app-title" content="TERRAIN">
-    <title>TERRAIN</title>
+    <meta name="apple-mobile-web-app-title" content="FIELD OPS">
+    <title>FIELD OPS</title>
     <link rel="manifest" href="manifest.json">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;800&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
-    <link rel="stylesheet" href="style.css?v=12">
+    <link rel="stylesheet" href="style.css?v=16">
   </head>
   <body>
     <div id="app-shell">
@@ -22,7 +22,7 @@
           <header class="cockpit-header">
             <div>
               <p class="eyebrow" id="today-label">Chargement</p>
-              <h1>TERRAIN</h1>
+              <h1 class="glitch-title" data-text="FIELD OPS">FIELD OPS</h1>
             </div>
             <div class="signal-pill" id="network-pill">SYNC</div>
           </header>
@@ -60,10 +60,37 @@
           </section>
 
           <section class="lower-grid">
+            <article class="glass-panel minimap-panel">
+              <div class="panel-top minimap-top">
+                <div>
+                  <span>Minimap</span>
+                  <strong id="minimap-status">SCAN ZONE</strong>
+                </div>
+                <button class="ghost-button minimap-gps-button" id="minimap-center-button" type="button" aria-label="Recentrer GPS">GPS</button>
+              </div>
+              <div class="minimap-frame" aria-label="Plan terrain autour de moi">
+                <div id="home-minimap" class="home-minimap-map"></div>
+                <div class="minimap-footer"><span id="minimap-range">GPS en attente</span><strong>COMBAT</strong></div>
+              </div>
+              <aside class="home-client-detail" id="home-client-detail" aria-live="polite">
+                <button class="panel-close home-detail-close" id="close-home-client-detail" type="button" aria-label="Fermer">×</button>
+                <p class="eyebrow" id="home-client-city">Sélection</p>
+                <h2 id="home-client-title">Touchez une bulle</h2>
+                <p id="home-client-meta">Les fiches proches apparaissent sur le plan.</p>
+                <div class="client-tags" id="home-client-tags"></div>
+                <p id="home-client-location"></p>
+                <p id="home-client-notes"></p>
+                <div class="panel-actions">
+                  <a class="waze-button" id="home-waze-link" href="#" target="_blank" rel="noopener">Waze</a>
+                  <button class="secondary-button" id="home-open-map-button" type="button">Satellite</button>
+                </div>
+              </aside>
+            </article>
+
             <article class="glass-panel quests-panel">
               <div class="panel-top">
                 <span>Quêtes du jour</span>
-                <button class="ghost-button" id="refresh-button" type="button">Rafraîchir</button>
+                <button class="ghost-button refresh-quests-button" id="refresh-button" type="button" aria-label="Rafraîchir les quêtes" title="Rafraîchir les quêtes"><span class="refresh-icon" aria-hidden="true">⟳</span></button>
               </div>
               <div class="quest-list" id="quest-list"></div>
             </article>
@@ -77,7 +104,7 @@
             </article>
           </section>
 
-          <button class="launch-button" id="go-map-button" type="button">LANCER LE MODE TERRAIN</button>
+          <button class="launch-button" id="go-map-button" type="button" aria-label="Edition carte" title="Edition carte"><span class="tool-wrench" aria-hidden="true"></span></button>
         </section>
 
         <section class="screen map-screen" id="map-screen" aria-label="Carte terrain" data-mode="satellite">
@@ -135,6 +162,6 @@
     </div>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
-    <script type="module" src="app.js?v=12"></script>
+    <script type="module" src="app.js?v=16"></script>
   </body>
 </html>

@@ -1,6 +1,6 @@
 {
-  "name": "TERRAIN",
-  "short_name": "TERRAIN",
+  "name": "FIELD OPS",
+  "short_name": "FIELD OPS",
   "description": "HUD terrain pour prospection énergie ENGIE PRO.",
   "start_url": "./index.html",
   "scope": "./",

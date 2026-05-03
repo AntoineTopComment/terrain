@@ -53,6 +53,7 @@ let activeTileLayer;
 let geocodeRun = 0;
 let manualPlacement = null;
 let userCoords = null;
+let locationWatchId = null;
 let selectClientCallback = () => {};
 let geoStatusCallback = () => {};
 let geocodeStatusCallback = () => {};
@@ -104,11 +105,20 @@ export function setMapMode(mode) {
   setTimeout(() => map?.invalidateSize(), 80);
 }
 
+export function primeClientLocations(clients = []) {
+  setClientCache(clients);
+  if (map) drawMarkers(selectClientCallback);
+  publishGeoStatus();
+  return getGeoSummary();
+}
+
 export function renderClients(clients, onClientSelected) {
-  if (!map) return;
   selectClientCallback = onClientSelected || selectClientCallback;
-  purgeInvalidLocalPositions();
-  clientsCache = clients.map((client) => ({ ...client, __geo: sanitizeGeo(resolveClientCoords(client)) }));
+  setClientCache(clients);
+  if (!map) {
+    publishGeoStatus();
+    return;
+  }
   drawMarkers(selectClientCallback);
   publishGeoStatus();
 }
@@ -118,29 +128,11 @@ export function startGeocoding() {
 }
 
 export function centerOnUser() {
-  if (!navigator.geolocation || !map) {
-    removeUserMarker();
-    gpsStatusCallback("GPS indisponible");
-    return;
-  }
-  navigator.geolocation.getCurrentPosition(
-    (position) => {
-      const coords = [position.coords.latitude, position.coords.longitude];
-      if (!validGpsCoords(coords)) {
-        removeUserMarker();
-        gpsStatusCallback("GPS indisponible");
-        return;
-      }
-      userCoords = coords;
-      setUserMarker(coords);
+  return refreshUserPosition((coords) => {
+    if (map) {
       map.setView(coords, 16);
-    },
-    () => {
-      removeUserMarker();
-      gpsStatusCallback("GPS indisponible");
-    },
-    { enableHighAccuracy: true, maximumAge: 10000, timeout: 15000 }
-  );
+    }
+  }).catch(() => {});
 }
 
 export function fitAllClients() {
@@ -160,13 +152,31 @@ export function fitAllClients() {
   });
 }
 
+export function focusMapOn(coords, zoom = 16) {
+  if (!map || !validGpsCoords(coords)) return false;
+  map.setView(coords, zoom);
+  return true;
+}
+
+export function focusOperationalArea(zoom = 14) {
+  if (!map) return false;
+  const anchor = getLocatedClients(1)[0];
+  if (!anchor) {
+    fitAllClients();
+    return false;
+  }
+  map.setView(anchor.coords, zoom);
+  return true;
+}
+
 export function startLocationWatch(onNearClient, onPositionChange) {
   if (!navigator.geolocation) {
     removeUserMarker();
     gpsStatusCallback("GPS indisponible");
     return;
   }
-  navigator.geolocation.watchPosition(
+  if (locationWatchId !== null) return locationWatchId;
+  locationWatchId = navigator.geolocation.watchPosition(
     (position) => {
       const coords = [position.coords.latitude, position.coords.longitude];
       if (!validGpsCoords(coords)) {
@@ -193,6 +203,26 @@ export function startLocationWatch(onNearClient, onPositionChange) {
     },
     { enableHighAccuracy: true, maximumAge: 12000, timeout: 15000 }
   );
+  return locationWatchId;
+}
+
+export function getUserCoords() {
+  return userCoords ? [...userCoords] : null;
+}
+
+export async function refreshUserPosition(onPositionChange) {
+  try {
+    const coords = await getCurrentPosition();
+    userCoords = coords;
+    setUserMarker(coords);
+    gpsStatusCallback("GPS actif");
+    onPositionChange?.(coords);
+    return coords;
+  } catch (error) {
+    removeUserMarker();
+    gpsStatusCallback("GPS indisponible");
+    throw error;
+  }
 }
 
 export function wazeUrl(client) {
@@ -252,8 +282,8 @@ export function getCaptureTargets(limit = 8) {
       return {
         client,
         distance,
-        angle: seed % 360,
-        radius: 18 + (seed % 18),
+        angle: userCoords ? bearingBetween(userCoords, client.__geo.coords) - 90 : seed % 360,
+        radius: targetRadius(distance, seed),
         heat: heatWeight(client)
       };
     })
@@ -262,6 +292,31 @@ export function getCaptureTargets(limit = 8) {
       return b.heat - a.heat;
     });
   return ranked.slice(0, limit);
+}
+
+export function getLocatedClients(limit = 999) {
+  const ranked = clientsCache
+    .filter((client) => validCoords(client.__geo?.coords))
+    .map((client) => {
+      const distance = userCoords ? metersBetween(userCoords, client.__geo.coords) : null;
+      return {
+        client,
+        coords: [...client.__geo.coords],
+        distance,
+        source: client.__geo.source || "city",
+        heat: heatWeight(client)
+      };
+    })
+    .sort((a, b) => {
+      if (a.distance !== null && b.distance !== null) return a.distance - b.distance;
+      return b.heat - a.heat;
+    });
+  return ranked.slice(0, limit);
+}
+
+function setClientCache(clients = []) {
+  purgeInvalidLocalPositions();
+  clientsCache = clients.map((client) => ({ ...client, __geo: sanitizeGeo(resolveClientCoords(client)) }));
 }
 
 function drawMarkers(onClientSelected) {
@@ -459,6 +514,12 @@ function databaseLocation(client) {
       sourceName: client.web_location_source || ""
     };
   }
+  const database = coordsFrom(
+    client,
+    ["lat", "latitude", "gps_lat", "geo_lat", "location_lat"],
+    ["lng", "lon", "longitude", "gps_lng", "geo_lng", "location_lng", "location_lon"]
+  );
+  if (database && insideAra(database)) return { coords: database, source: "database", label: "coordonnées base" };
   return null;
 }
 
@@ -707,6 +768,20 @@ function metersBetween(a, b) {
   const dLng = toRad(b[1] - a[1]);
   const h = Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) ** 2;
   return 2 * radius * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
+}
+
+function bearingBetween(a, b) {
+  const lat1 = toRad(a[0]);
+  const lat2 = toRad(b[0]);
+  const dLng = toRad(b[1] - a[1]);
+  const y = Math.sin(dLng) * Math.cos(lat2);
+  const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLng);
+  return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+}
+
+function targetRadius(distance, seed) {
+  if (distance === null || !Number.isFinite(distance)) return 18 + (seed % 18);
+  return 16 + Math.min(34, Math.round((Math.min(distance, 4200) / 4200) * 34));
 }
 
 function toRad(value) {
