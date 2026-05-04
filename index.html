@@ -9,11 +9,13 @@
     <meta name="apple-mobile-web-app-title" content="FIELD OPS">
     <title>FIELD OPS</title>
     <link rel="manifest" href="manifest.json">
+    <link rel="icon" href="icon.svg" type="image/svg+xml">
+    <link rel="apple-touch-icon" href="icon-192.png">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;800&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
-    <link rel="stylesheet" href="style.css?v=16">
+    <link rel="stylesheet" href="style.css?v=22">
   </head>
   <body>
     <div id="app-shell">
@@ -24,7 +26,7 @@
               <p class="eyebrow" id="today-label">Chargement</p>
               <h1 class="glitch-title" data-text="FIELD OPS">FIELD OPS</h1>
             </div>
-            <div class="signal-pill" id="network-pill">SYNC</div>
+            <button class="signal-pill" id="network-pill" type="button" aria-pressed="true" title="LIVE : suivi GPS automatique actif">SYNC</button>
           </header>
 
           <section class="mission-grid">
@@ -34,7 +36,7 @@
                 <strong id="rank-percent">0%</strong>
               </div>
               <h2 id="rank-name">Connexion terrain</h2>
-              <div class="liquid-bar rank-liquid" aria-label="Progression vers le rang suivant">
+              <div class="hud-bar rank-liquid" aria-label="Progression vers le rang suivant">
                 <span id="rank-progress-bar"></span>
               </div>
               <p id="rank-next">Calcul du prochain palier...</p>
@@ -46,7 +48,7 @@
                 <strong id="score-status-chip">En chauffe</strong>
               </div>
               <div class="score-number" id="score-percent">--%</div>
-              <div class="liquid-bar score-liquid" aria-label="Progression du score du jour">
+              <div class="hud-bar score-liquid" aria-label="Progression du score du jour">
                 <span id="score-energy-fill"></span>
               </div>
               <p id="score-status">Lecture des scores...</p>
@@ -90,7 +92,7 @@
             <article class="glass-panel quests-panel">
               <div class="panel-top">
                 <span>Quêtes du jour</span>
-                <button class="ghost-button refresh-quests-button" id="refresh-button" type="button" aria-label="Rafraîchir les quêtes" title="Rafraîchir les quêtes"><span class="refresh-icon" aria-hidden="true">⟳</span></button>
+                <button class="ghost-button refresh-quests-button" id="refresh-button" type="button" aria-label="Rafraîchir les quêtes" title="Rafraîchir les quêtes"><span class="refresh-icon" aria-hidden="true">&#x1FA84;</span></button>
               </div>
               <div class="quest-list" id="quest-list"></div>
             </article>
@@ -104,7 +106,7 @@
             </article>
           </section>
 
-          <button class="launch-button" id="go-map-button" type="button" aria-label="Edition carte" title="Edition carte"><span class="tool-wrench" aria-hidden="true"></span></button>
+          <button class="launch-button" id="go-map-button" type="button" aria-label="Edition carte" title="Edition carte"><span class="tool-wrench" aria-hidden="true">&#x1F527;</span></button>
         </section>
 
         <section class="screen map-screen" id="map-screen" aria-label="Carte terrain" data-mode="satellite">
@@ -131,14 +133,8 @@
 
           <div class="capture-layer" id="capture-layer" aria-hidden="true">
             <div class="capture-shade"></div>
-            <div class="capture-radar">
-              <span></span>
-              <span></span>
-              <span></span>
-            </div>
-            <div class="capture-center">
-              <strong>TOI</strong>
-            </div>
+            <div class="capture-radar"><span></span><span></span><span></span></div>
+            <div class="capture-center"><strong>TOI</strong></div>
             <div class="capture-orbs" id="capture-orbs"></div>
             <div class="capture-strip" id="capture-strip"></div>
           </div>
@@ -162,6 +158,6 @@
     </div>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
-    <script type="module" src="app.js?v=16"></script>
+    <script type="module" src="app.js?v=22"></script>
   </body>
 </html>

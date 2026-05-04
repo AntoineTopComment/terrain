@@ -1,6 +1,30 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <rect width="512" height="512" rx="96" fill="#070b12"/>
-  <path d="M72 132h368v72H296v228h-80V204H72z" fill="#e8630a"/>
-  <path d="M96 96h320v36H96zm0 316h320v36H96z" fill="#00c8f0"/>
-  <circle cx="256" cy="256" r="148" fill="none" stroke="#00e87a" stroke-width="16" opacity=".75"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="FIELD OPS coin icon">
+  <defs>
+    <radialGradient id="coinFill" cx="34%" cy="26%" r="74%">
+      <stop offset="0" stop-color="#fff3a9"/>
+      <stop offset="0.34" stop-color="#ffd84a"/>
+      <stop offset="0.7" stop-color="#f3a521"/>
+      <stop offset="1" stop-color="#8c4d07"/>
+    </radialGradient>
+    <linearGradient id="rim" x1="118" y1="82" x2="404" y2="430" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#fff5b5"/>
+      <stop offset="0.45" stop-color="#ffc43d"/>
+      <stop offset="1" stop-color="#9e5a08"/>
+    </linearGradient>
+    <filter id="glow" x="-25%" y="-25%" width="150%" height="150%">
+      <feGaussianBlur stdDeviation="10" result="blur"/>
+      <feColorMatrix in="blur" type="matrix" values="1 0 0 0 1 0 0.68 0 0 0.45 0 0 0.12 0 0 0 0 0 .65 0"/>
+      <feBlend in="SourceGraphic"/>
+    </filter>
+  </defs>
+  <rect width="512" height="512" rx="92" fill="#070b12"/>
+  <path d="M74 122h56v12H74zm310 256h54v12h-54z" fill="#35f1ff" opacity=".56"/>
+  <circle cx="256" cy="256" r="170" fill="#2d1804" opacity=".92"/>
+  <circle cx="256" cy="256" r="154" fill="url(#coinFill)" stroke="url(#rim)" stroke-width="24" filter="url(#glow)"/>
+  <circle cx="256" cy="256" r="116" fill="none" stroke="#fff1a3" stroke-width="10" opacity=".72"/>
+  <circle cx="256" cy="256" r="82" fill="#3c1e02" fill-opacity=".16" stroke="#a86208" stroke-width="8" opacity=".55"/>
+  <path d="M256 142l34 73 80 9-59 54 16 79-71-40-70 40 15-79-59-54 80-9z" fill="#fff4a8" stroke="#7d4306" stroke-width="12" stroke-linejoin="round"/>
+  <path d="M256 161l25 55 60 7-44 40 12 58-53-30-52 30 11-58-44-40 60-7z" fill="#ffbe2e"/>
+  <path d="M139 166c35-38 73-56 119-56M154 364c45 35 107 45 163 24" fill="none" stroke="#fff4a8" stroke-width="14" stroke-linecap="round" opacity=".52"/>
+  <path d="M88 248h44v16H88zm292-5h44v16h-44z" fill="#ff334f" opacity=".72"/>
 </svg>

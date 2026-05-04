@@ -1,4 +1,4 @@
-const CACHE_NAME = "terrain-v16";
+const CACHE_NAME = "terrain-v22";
 const APP_SHELL = [
   "./",
   "./index.html",
@@ -7,7 +7,9 @@ const APP_SHELL = [
   "./map.js",
   "./score.js",
   "./manifest.json",
-  "./icon.svg"
+  "./icon.svg",
+  "./icon-192.png",
+  "./icon-512.png"
 ];
 
 self.addEventListener("install", (event) => {
