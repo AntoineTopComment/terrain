@@ -1,0 +1,251 @@
+/* FIELD OPS — Cyberpunk HUD upgrade v18 */
+
+.signal-pill {
+  border-radius: 0;
+  clip-path: polygon(0 0, calc(100% - 13px) 0, 100% 38%, 100% 100%, 13px 100%, 0 62%);
+  background: rgba(0, 232, 122, 0.055);
+  transition: border-color 180ms ease, color 180ms ease, box-shadow 180ms ease, background 180ms ease;
+  user-select: none;
+}
+
+button.signal-pill {
+  appearance: none;
+  font: 800 12px "Orbitron", system-ui, sans-serif;
+}
+
+.signal-pill::before {
+  content: "";
+  width: 5px;
+  height: 5px;
+  margin-right: 6px;
+  display: inline-block;
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: 0 0 10px currentColor;
+}
+
+.signal-pill.free,
+body.terrain-gps-free .signal-pill {
+  border-color: rgba(255, 216, 74, 0.64);
+  color: var(--yellow);
+  background: rgba(255, 216, 74, 0.075);
+  box-shadow: 0 0 18px rgba(255, 216, 74, 0.12), inset 0 0 18px rgba(255, 216, 74, 0.05);
+}
+
+body.terrain-gps-free .home-user-marker,
+body.terrain-gps-free .minimap-footer strong {
+  opacity: 0.48;
+}
+
+body.terrain-gps-free .minimap-frame::after {
+  content: "FREE NAV";
+  position: absolute;
+  right: 12px;
+  top: 12px;
+  z-index: 560;
+  padding: 3px 8px;
+  border: 1px solid rgba(255, 216, 74, 0.38);
+  color: var(--yellow);
+  background: rgba(7, 11, 18, 0.72);
+  font: 800 11px "Orbitron", system-ui, sans-serif;
+  letter-spacing: 0.7px;
+}
+
+/* Barres HUD plus fines : style santé/stamina, sans segments internes. */
+.liquid-bar {
+  height: 11px !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: rgba(0, 0, 0, 0.58) !important;
+  box-shadow:
+    inset 0 0 0 1px rgba(0, 200, 240, 0.20),
+    inset 0 0 10px rgba(0, 0, 0, 0.75) !important;
+  clip-path: polygon(0 0, calc(100% - 20px) 0, 100% 100%, 0 100%);
+}
+
+.score-liquid {
+  height: 12px !important;
+}
+
+.liquid-bar > span {
+  min-width: 0 !important;
+  border-radius: 0 !important;
+  background: linear-gradient(90deg, #ff3f5f, #ff657c) !important;
+  box-shadow: 0 0 12px rgba(255, 51, 85, 0.48) !important;
+  transition: width 650ms cubic-bezier(.2, .8, .2, 1) !important;
+}
+
+.score-liquid > span {
+  background: linear-gradient(90deg, #ffb12d, #ffd84a) !important;
+  box-shadow: 0 0 12px rgba(255, 216, 74, 0.42) !important;
+}
+
+.liquid-bar > span::before {
+  display: none !important;
+}
+
+.liquid-bar > span::after {
+  inset: 0 !important;
+  background: linear-gradient(90deg, transparent 0 58%, rgba(255, 255, 255, 0.50), transparent 78%) !important;
+  animation: energyScan 2.35s linear infinite !important;
+  opacity: 0.72 !important;
+}
+
+.rank-card,
+.score-card,
+.streak-card {
+  background: transparent !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+}
+
+.rank-card::before,
+.score-card::before,
+.streak-card::before {
+  display: none !important;
+}
+
+/* Marqueurs simplifiés :
+   - froid = cadre gris vide
+   - action = cadre orange + ! orange
+   - signé = cadre vert vide
+*/
+.heat-tres-chaud .marker-shell,
+.heat-chaud .marker-shell,
+.heat-tiede .marker-shell {
+  color: var(--orange-2) !important;
+  animation: markerPulse 1.35s infinite;
+}
+
+.heat-signed .marker-shell {
+  color: #00e87a !important;
+  animation: signedPulse 1.85s infinite;
+}
+
+.marker-shell {
+  border-radius: 0 !important;
+  clip-path: polygon(0 0, calc(100% - 13px) 0, 100% 36%, 100% 100%, 13px 100%, 0 64%);
+}
+
+.marker-dot {
+  display: grid;
+  place-items: center;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  font-size: 17px;
+  line-height: 1;
+}
+
+.marker-dot::before {
+  content: "!";
+  color: currentColor;
+  font: 900 18px "Orbitron", system-ui, sans-serif;
+  text-shadow: 0 0 10px currentColor;
+}
+
+.heat-froid .marker-dot::before,
+.heat-signed .marker-dot::before {
+  content: "";
+  width: 0;
+  height: 0;
+  border: 0;
+  opacity: 0;
+}
+
+.home-map-marker {
+  background: transparent !important;
+  border: 0 !important;
+}
+
+.home-map-marker > span {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 30px !important;
+  height: 30px !important;
+  border: 1px solid currentColor;
+  border-radius: 0;
+  background: rgba(7, 11, 18, 0.62);
+  color: #83909f;
+  clip-path: polygon(0 0, calc(100% - 7px) 0, 100% 25%, 100% 100%, 7px 100%, 0 75%);
+  box-shadow: 0 0 14px currentColor;
+}
+
+.home-map-marker > span::before {
+  content: "";
+  width: 0;
+  height: 0;
+  border: 0;
+  opacity: 0;
+}
+
+.home-map-marker.hot > span,
+.home-map-marker.very-hot > span,
+.home-map-marker.due > span,
+.home-map-marker.quest > span {
+  color: var(--orange-2) !important;
+  animation: markerPulse 1.45s infinite;
+}
+
+.home-map-marker.hot > span::before,
+.home-map-marker.very-hot > span::before,
+.home-map-marker.due > span::before,
+.home-map-marker.quest > span::before {
+  content: "!";
+  width: auto;
+  height: auto;
+  border: 0;
+  font: 900 20px "Orbitron", system-ui, sans-serif;
+  opacity: 1;
+}
+
+.home-map-marker.signed > span {
+  color: #00e87a !important;
+  animation: signedPulse 1.85s infinite;
+}
+
+.home-map-marker.signed > span::before {
+  content: "";
+  width: 0;
+  height: 0;
+  border: 0;
+  opacity: 0;
+}
+
+.home-map-marker.selected > span {
+  outline: 1px solid var(--cyan);
+  outline-offset: 4px;
+}
+
+/* Boutons bas droite : icônes explicites. */
+.tool-wrench {
+  display: grid;
+  place-items: center;
+}
+
+.tool-wrench::before {
+  content: "🔧";
+  font-size: 38px;
+  line-height: 1;
+  filter: drop-shadow(0 0 8px rgba(255, 216, 74, 0.65));
+}
+
+.refresh-icon {
+  display: grid;
+  place-items: center;
+  font-size: 0 !important;
+}
+
+.refresh-icon::before {
+  content: "🪄";
+  font-size: 26px;
+  line-height: 1;
+  filter: drop-shadow(0 0 8px rgba(255, 216, 74, 0.65));
+}
+
+.refresh-quests-button,
+.launch-button {
+  border-radius: 0 !important;
+  clip-path: polygon(0 0, calc(100% - 16px) 0, 100% 30%, 100% 100%, 16px 100%, 0 70%);
+}
