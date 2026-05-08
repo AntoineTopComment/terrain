@@ -1,0 +1,6 @@
+Copie ici, toi-même, le fichier : Cyberway Riders.otf
+
+Le fichier doit être placé exactement à cet emplacement :
+fonts/Cyberway Riders.otf
+
+Je n'inclus pas le fichier de police dans ce zip.
